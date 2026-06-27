@@ -1,0 +1,2 @@
+# local SMTP config for the optional observer
+monitoring/battery-observer.env
