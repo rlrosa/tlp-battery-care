@@ -31,10 +31,35 @@ Those are the defaults (a work-laptop profile); everything is configurable in
 - The laptop must stay **awake and on AC overnight** — `cron` doesn't fire while
   suspended, and force-discharge requires AC power.
 
-## Quick start
+## Quick start (no clone)
 
 ```bash
-git clone <this-repo> tlp-battery-care
+curl -fsSL https://raw.githubusercontent.com/rlrosa/tlp-battery-care/main/get.sh | sudo bash
+```
+
+That installs the discharge helper to `/usr/local/bin` and generates
+`/etc/cron.d/battery-care` with the default schedule. To use your own settings,
+export them first and add `-E` so `sudo` passes them through:
+
+```bash
+export NIGHT_HOUR=23 NIGHT_DISCHARGE_TARGET=60 MORNING_HOUR=8
+curl -fsSL https://raw.githubusercontent.com/rlrosa/tlp-battery-care/main/get.sh | sudo -E bash
+```
+
+Uninstall the same way:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rlrosa/tlp-battery-care/main/get.sh | sudo bash -s -- uninstall
+```
+
+> The one-liner just downloads the few files it needs and runs the same
+> `install.sh`. Prefer to read before you run? `curl` the URL on its own first,
+> or clone and install locally (below).
+
+## Quick start (clone)
+
+```bash
+git clone https://github.com/rlrosa/tlp-battery-care
 cd tlp-battery-care
 
 # (optional) edit config.sh to taste — the defaults are sensible
