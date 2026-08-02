@@ -2,14 +2,18 @@
 # Remove the tlp-battery-care cron schedule and discharge helper, and restore
 # normal charging behaviour. Does NOT change /etc/tlp.conf thresholds.
 #
-#   sudo -E ./uninstall.sh
+#   sudo -E cron/uninstall.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=config.sh
-source "$HERE/config.sh"
+ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=../config.sh
+source "$ROOT/config.sh"
 
-[[ $EUID -eq 0 ]] || { echo "Please run as root:  sudo -E ./uninstall.sh" >&2; exit 1; }
+# config.sh is systemd-only now; retain the historic path solely for migration.
+CRON_FILE="${CRON_FILE:-/etc/cron.d/battery-care}"
+
+[[ $EUID -eq 0 ]] || { echo "Please run as root:  sudo -E cron/uninstall.sh" >&2; exit 1; }
 
 if [[ -f "$CRON_FILE" ]]; then
     rm -f "$CRON_FILE"

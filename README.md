@@ -1,163 +1,119 @@
 # tlp-battery-care
 
-Keep a laptop battery healthy by holding it at a **low charge overnight** and
-topping it up to **full just before you need it**. Lithium batteries wear
-faster when held near 100% for long stretches, so sitting plugged in at a desk
-all night (and all weekend) is exactly what you want to avoid.
+`tlp-battery-care` keeps a plugged-in laptop at a low charge overnight, then
+restores normal charging for the workday. It is a root-managed, event-driven
+layer on top of [TLP](https://linrunner.de/tlp/).
 
-This repo is a thin, scriptable layer on top of [TLP](https://linrunner.de/tlp/)
-and `cron`:
+- **Low interval:** from `NIGHT_HOUR` every day until `MORNING_HOUR` on a
+  configured workday. With the defaults, this includes the entire weekend.
+- **Normal interval:** 96–100% on workdays from 07:00 to 22:00.
+- **Departure:** suspend, hibernate, hybrid sleep, suspend-then-hibernate,
+  reboot, halt, and clean poweroff immediately restore normal thresholds.
+- **Wake:** the current interval is recalculated. If it is low time and AC is
+  connected, the low thresholds and bounded discharge are started again.
 
-- **22:00 every night** — force-discharge down to ~50%, then pin TLP charge
-  thresholds so it floats around 45–50% all night.
-- **07:00 Mon–Fri** — charge back up to 100% so it's full for the workday.
-- **Weekends** — the morning charge is skipped, so the battery rests low until
-  Monday morning.
-
-Those are the defaults (a work-laptop profile); everything is configurable in
-[`config.sh`](config.sh).
+This is designed for a laptop that normally stays plugged in. When AC is not
+online, the policy keeps normal thresholds and never force-discharges.
 
 ## Requirements
 
-- Linux with **TLP** installed (`apt install tlp` / `dnf install tlp` / `pacman -S tlp`).
-- A kernel that exposes `charge_behaviour` for your battery — check:
-  ```bash
-  cat /sys/class/power_supply/BAT0/charge_behaviour
-  # e.g. [auto] inhibit-charge force-discharge
-  ```
-  Threshold pinning works without `force-discharge`, but the nightly *discharge*
-  step needs it. This is common on ThinkPads and many recent laptops.
-- `cron` (most distros ship it; otherwise `apt install cron`).
-- The laptop must stay **awake and on AC overnight** — `cron` doesn't fire while
-  suspended, and force-discharge requires AC power.
+- Linux with systemd and TLP.
+- A battery exposed under `/sys/class/power_supply/` (usually `BAT0`).
+- For active draining, `charge_behaviour` must support `force-discharge`.
+  Threshold-only low charging still works without it.
+- Root installation: TLP thresholds, battery sysfs, and system sleep/shutdown
+  lifecycle hooks are privileged interfaces.
 
-## Quick start (no clone)
+## Install
+
+```bash
+git clone https://github.com/rlrosa/tlp-battery-care
+cd tlp-battery-care
+# optional: edit config.sh
+sudo -E systemd/install.sh
+```
+
+Or without cloning:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rlrosa/tlp-battery-care/main/get.sh | sudo bash
 ```
 
-That installs the discharge helper to `/usr/local/bin` and generates
-`/etc/cron.d/battery-care` with the default schedule. To use your own settings,
-export them first and add `-E` so `sudo` passes them through:
+Use environment overrides for a one-off install:
 
 ```bash
-export NIGHT_HOUR=23 NIGHT_DISCHARGE_TARGET=60 MORNING_HOUR=8
-curl -fsSL https://raw.githubusercontent.com/rlrosa/tlp-battery-care/main/get.sh | sudo -E bash
+NIGHT_HOUR=23 NIGHT_DISCHARGE_TARGET=60 sudo -E systemd/install.sh
 ```
 
-Uninstall the same way:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/rlrosa/tlp-battery-care/main/get.sh | sudo bash -s -- uninstall
-```
-
-> The one-liner just downloads the few files it needs and runs the same
-> `install.sh`. Prefer to read before you run? `curl` the URL on its own first,
-> or clone and install locally (below).
-
-## Quick start (clone)
-
-```bash
-git clone https://github.com/rlrosa/tlp-battery-care
-cd tlp-battery-care
-
-# (optional) edit config.sh to taste — the defaults are sensible
-sudo -E ./install.sh
-```
-
-`install.sh` will:
-
-1. install `battery-discharge-to.sh` to `/usr/local/bin`, and
-2. generate `/etc/cron.d/battery-care` from your config.
-
-That's it. Check that a run did what you expect:
-
-```bash
-journalctl -t battery-care --since today
-```
-
-To change anything later, edit `config.sh` and re-run `sudo -E ./install.sh`.
-To remove everything:
-
-```bash
-sudo -E ./uninstall.sh
-```
+Re-run the installer after changing `config.sh`. It regenerates root-owned
+runtime configuration and systemd units, then immediately reconciles policy.
+If migrating from the retired cron variant, run `sudo -E cron/uninstall.sh`
+first, then install the systemd policy.
 
 ## Configuration
 
-Edit [`config.sh`](config.sh), or override any value via the environment for a
-one-off install (`-E` preserves your env through `sudo`):
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BATTERY` | `BAT0` | Battery under `/sys/class/power_supply` |
+| `NIGHT_DISCHARGE_TARGET` | `50` | Active-discharge target during low time |
+| `NIGHT_START_THRESHOLD` / `NIGHT_STOP_THRESHOLD` | `45` / `50` | Low charge window |
+| `DAY_START_THRESHOLD` / `DAY_STOP_THRESHOLD` | `96` / `100` | Normal charge window |
+| `NIGHT_DISCHARGE_MAX_RUNTIME_MINUTES` | `720` | Per-attempt discharge limit |
+| `NIGHT_HOUR` / `MORNING_HOUR` | `22` / `7` | Low begins / normal begins |
+| `WORKDAYS` | `1-5` | Cron-style normal days; `*` means daily |
+| `UNIT_DIR` | `/etc/systemd/system` | Generated systemd unit directory |
+| `RUNTIME_DIR` | `/etc/tlp-battery-care` | Root-only generated runtime configuration |
+| `SYSTEM_SLEEP_DIR` | `/usr/lib/systemd/system-sleep` | Generated system-sleep hook directory |
+
+`MORNING_HOUR` must be earlier than `NIGHT_HOUR`. `WORKDAYS` accepts `*` or
+comma-separated day numbers/ranges (`0` or `7` is Sunday), such as `1-5`.
+
+## Operation
 
 ```bash
-BATTERY=BAT1 NIGHT_DISCHARGE_TARGET=60 MORNING_HOUR=8 sudo -E ./install.sh
-```
+# Inspect the state and active discharge worker.
+systemctl status battery-care-reconcile.service battery-care-low.service
 
-| Variable                 | Default | Meaning                                                        |
-| ------------------------ | ------- | -------------------------------------------------------------- |
-| `BATTERY`                | `BAT0`  | Battery under `/sys/class/power_supply/`                       |
-| `NIGHT_DISCHARGE_TARGET` | `50`    | Force-discharge down to this % at night                        |
-| `NIGHT_START_THRESHOLD`  | `45`    | Overnight: resume charging below this %                        |
-| `NIGHT_STOP_THRESHOLD`   | `50`    | Overnight: stop charging at this %                             |
-| `DAY_START_THRESHOLD`    | `96`    | Morning: resume charging below this %                          |
-| `DAY_STOP_THRESHOLD`     | `100`   | Morning: charge up to this %                                   |
-| `NIGHT_HOUR`             | `22`    | Hour (0–23) to run the nightly discharge                       |
-| `MORNING_HOUR`           | `7`     | Hour (0–23) to charge back up                                  |
-| `WORKDAYS`               | `1-5`   | Cron day-of-week for the morning charge (`1-5`=Mon–Fri, `*`=daily) |
-| `INSTALL_BIN_DIR`        | `/usr/local/bin` | Where the discharge helper is installed               |
-| `CRON_FILE`              | `/etc/cron.d/battery-care` | Generated cron schedule                      |
-| `CRON_USER`              | `root`  | User the cron jobs run as                                      |
+# See scheduled boundaries.
+systemctl list-timers 'battery-care-*'
 
-## How it works
+# Re-evaluate policy now.
+sudo systemctl start battery-care-reconcile.service
 
-The generated `/etc/cron.d/battery-care` holds two lines:
-
-```cron
-# night: discharge to 50%, then hold 45-50%
-0 22 * * *   root  /usr/local/bin/battery-discharge-to.sh 50 BAT0 && /usr/sbin/tlp setcharge 45 50 BAT0
-
-# morning (Mon-Fri): charge to 96-100%
-0 7  * * 1-5 root  /usr/sbin/tlp setcharge 96 100 BAT0
-```
-
-[`bin/battery-discharge-to.sh`](bin/battery-discharge-to.sh) flips the kernel's
-`charge_behaviour` to `force-discharge`, polls until the battery reaches the
-target, and **always restores `auto` on exit** — even on Ctrl-C, kill, or
-error — so you can never get stuck discharging. `tlp setcharge` then pins the
-start/stop thresholds that hold the level in place.
-
-Everything logs to the journal under the `battery-care` tag:
-
-```bash
+# Review decisions and discharge progress.
 journalctl -t battery-care --since today
 ```
 
-## Run the discharge helper by hand
+`battery-care-reconcile.service` is a one-shot service, so `inactive (dead)`
+with a successful last exit is the expected status after it applies policy.
+`battery-care-low.service` is active only while a low-interval discharge is in
+progress. `battery-care-departure.service` should remain `active (exited)` and
+enabled while the policy is installed.
 
-You don't need cron to use it — drain to any level on demand:
+The installed system-sleep hook changes to normal thresholds before suspend,
+hibernate, hybrid sleep, and suspend-then-hibernate; it starts a non-blocking
+reconcile after wake. A shutdown guard runs the same departure policy on clean
+reboot/halt/poweroff. Sudden power loss cannot run a hook.
+
+To pause policy persistently, disable the two timers and the departure guard;
+re-enable them and start a reconcile to resume:
 
 ```bash
-sudo /usr/local/bin/battery-discharge-to.sh 60 BAT0   # discharge to 60%
+sudo systemctl disable --now battery-care-night.timer battery-care-morning.timer battery-care-departure.service
+sudo systemctl enable --now battery-care-night.timer battery-care-morning.timer battery-care-departure.service
+sudo systemctl start battery-care-reconcile.service
 ```
 
-## Optional: email monitoring
+## Uninstall
 
-If you want email alerts while you build confidence in the schedule, see
-[`monitoring/`](monitoring/). It's entirely optional and most people won't need
-it (it requires an SMTP relay).
+```bash
+sudo -E systemd/uninstall.sh
+# or:
+curl -fsSL https://raw.githubusercontent.com/rlrosa/tlp-battery-care/main/get.sh | sudo bash -s -- uninstall
+```
 
-## Troubleshooting
-
-- **Nothing happened overnight.** The machine was probably asleep — cron doesn't
-  run while suspended, and force-discharge needs AC. Keep it awake + plugged in,
-  or adjust the hours in `config.sh`.
-- **`charge_behaviour` missing / discharge is a no-op.** Your hardware/kernel
-  doesn't support force-discharge. Threshold pinning still works; the battery
-  just won't actively drain — it'll drift down to the night window over time.
-- **Thresholds didn't change.** Confirm TLP is enabled (`sudo tlp-stat -s`) and
-  that your battery supports thresholds (`sudo tlp-stat -b`).
-- **Conflicting schedules.** This cron file is meant to be the single source of
-  truth — remove any `tlp setcharge`/discharge lines from your personal crontab.
+Uninstall restores `charge_behaviour=auto` but intentionally leaves your TLP
+thresholds unchanged. To reset them fully: `sudo tlp setcharge 0 100 BAT0`.
 
 ## License
 

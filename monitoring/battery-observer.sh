@@ -30,6 +30,8 @@ FROM="${BATTERY_OBSERVER_FROM:-battery-observer@$(hostname -f 2>/dev/null || hos
 SYS="/sys/class/power_supply/${BAT}"
 BEHAVIOUR="${SYS}/charge_behaviour"
 CAP="${SYS}/capacity"
+START="${SYS}/charge_control_start_threshold"
+STOP="${SYS}/charge_control_end_threshold"
 HOST="$(hostname)"
 
 [[ -r "$BEHAVIOUR" ]] || { echo "Cannot read $BEHAVIOUR" >&2; exit 1; }
@@ -38,6 +40,18 @@ log() { logger -t battery-observer -- "$*"; }
 
 # The active behaviour is the [bracketed] token, e.g. "auto inhibit-charge [force-discharge]".
 current_state() { grep -oP '\[\K[^]]+' "$BEHAVIOUR"; }
+
+# The charge thresholds set by "tlp setcharge", as "START-STOP" (e.g. "45-50").
+# These are separate sysfs files from charge_behaviour, so behaviour-only
+# watching never sees them change. Returns "n/a" if the kernel doesn't expose
+# them for this battery.
+current_window() {
+    if [[ -r "$START" && -r "$STOP" ]]; then
+        echo "$(cat "$START")-$(cat "$STOP")"
+    else
+        echo "n/a"
+    fi
+}
 
 send_email() {
     local subject="$1" body="$2" tmp
@@ -61,12 +75,27 @@ Battery: ${cap}%"
 }
 
 prev=$(current_state)
+prev_window=$(current_window)
 warned_low=0   # 1 once we've emailed the low-battery warning, until charge recovers
-log "started; initial state=${prev} cap=$(cat "$CAP")% poll=${POLL}s low=${LOW}% to=${TO}"
+log "started; initial state=${prev} window=${prev_window} cap=$(cat "$CAP")% poll=${POLL}s low=${LOW}% to=${TO}"
 
 while :; do
     sleep "$POLL"
     cap=$(cat "$CAP")
+
+    # Charge-threshold window changes (e.g. night 45-50 -> morning 96-100).
+    # Written by "tlp setcharge" into files separate from charge_behaviour,
+    # so they'd otherwise go unnoticed.
+    cur_window=$(current_window)
+    if [[ "$cur_window" != "$prev_window" ]]; then
+        log "window: ${prev_window} -> ${cur_window} at ${cap}%"
+        send_email "[battery] charge window ${prev_window} -> ${cur_window}" "Host: ${HOST}
+Time: $(date '+%Y-%m-%d %H:%M:%S')
+charge window (start-stop): ${prev_window} -> ${cur_window}
+Battery: ${cap}%
+charge_behaviour: $(current_state)"
+        prev_window="$cur_window"
+    fi
 
     # Low-battery warning (independent of charge_behaviour transitions).
     # Fire once on crossing below LOW; re-arm only after recovering a few % above it.
