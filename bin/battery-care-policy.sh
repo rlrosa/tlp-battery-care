@@ -93,7 +93,7 @@ case "$MODE" in
         else
             set_low
             log "Low interval with AC online; starting bounded discharge"
-            "$SYSTEMCTL_BIN" start --no-block battery-care-low.service
+            "$SYSTEMCTL_BIN" restart --no-block battery-care-low.service || log "Warning: could not queue battery-care-low.service"
         fi
         ;;
     discharge)

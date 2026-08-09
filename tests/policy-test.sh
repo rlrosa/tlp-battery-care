@@ -45,9 +45,9 @@ run() {
     : > "$LOG"
     BATTERY_CARE_CONFIG="$TMP/config" POWER_SUPPLY_DIR="$TMP/power" \
       SYSTEMCTL_BIN="$TMP/bin/systemctl" DATE_BIN="$TMP/bin/date" \
-      DATE_HOUR="$1" DATE_DOW="$2" bash "$ROOT/bin/battery-care-policy.sh" "$3" >/dev/null
+      DATE_HOUR="$1" DATE_DOW="$2" bash "$ROOT/bin/battery-care-policy.sh" "$3" >>"$LOG" 2>&1
 }
-expect() { rg -q -- "$1" "$LOG" || { echo "expected '$1':"; cat "$LOG"; exit 1; }; }
+expect() { grep -q -- "$1" "$LOG" || { echo "expected '$1':"; cat "$LOG"; exit 1; }; }
 
 # Weekday daytime is normal and cancels active low discharge.
 run 12 3 reconcile
@@ -58,7 +58,7 @@ expect 'tlp setcharge 96 100 BAT0'
 printf '1\n' > "$TMP/power/AC/online"
 run 23 3 reconcile
 expect 'tlp setcharge 45 50 BAT0'
-expect 'systemctl start --no-block battery-care-low.service'
+expect 'systemctl restart --no-block battery-care-low.service'
 
 # Weekend stays low, but no AC falls back to normal thresholds.
 printf '0\n' > "$TMP/power/AC/online"
@@ -69,5 +69,23 @@ expect 'tlp setcharge 96 100 BAT0'
 run 23 3 departure
 expect 'systemctl stop battery-care-low.service'
 expect 'tlp setcharge 96 100 BAT0'
+
+# Reconcile during sleep conflict (systemctl restart fails with status 4) does not exit non-zero
+printf '1\n' > "$TMP/power/AC/online"
+cat > "$TMP/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "systemctl $*" >> "$TEST_LOG"
+if [[ "$1" == "restart" ]]; then exit 4; fi
+EOF
+run 23 3 reconcile
+expect 'Warning: could not queue battery-care-low.service'
+
+# Test config threshold auto-derivation when NIGHT_DISCHARGE_TARGET=75
+(
+    unset NIGHT_START_THRESHOLD NIGHT_STOP_THRESHOLD
+    NIGHT_DISCHARGE_TARGET=75 source "$ROOT/config.sh"
+    [[ "$NIGHT_STOP_THRESHOLD" == "75" ]] || { echo "expected NIGHT_STOP_THRESHOLD=75, got '$NIGHT_STOP_THRESHOLD'"; exit 1; }
+    [[ "$NIGHT_START_THRESHOLD" == "70" ]] || { echo "expected NIGHT_START_THRESHOLD=70, got '$NIGHT_START_THRESHOLD'"; exit 1; }
+)
 
 echo "policy tests passed"

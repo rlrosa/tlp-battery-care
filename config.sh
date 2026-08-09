@@ -19,8 +19,8 @@
 # At night, force-discharge down to this percentage...
 : "${NIGHT_DISCHARGE_TARGET:=50}"
 # ...then pin TLP charge thresholds so it floats in this window overnight.
-: "${NIGHT_START_THRESHOLD:=45}"   # resume charging if it drops below this %
-: "${NIGHT_STOP_THRESHOLD:=50}"    # stop charging once it reaches this %
+: "${NIGHT_STOP_THRESHOLD:=${NIGHT_DISCHARGE_TARGET}}"
+: "${NIGHT_START_THRESHOLD:=$((NIGHT_STOP_THRESHOLD > 5 ? NIGHT_STOP_THRESHOLD - 5 : 0))}"
 # Stop a failed discharge attempt from blocking all later nightly runs. This
 # counts the helper's running time; it will re-check force-discharge on every
 # poll so a suspend/resume reset is normally recovered automatically.
