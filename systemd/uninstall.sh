@@ -34,7 +34,7 @@ fi
 rm -f "$RD/battery-care.conf"
 rmdir "$RD" 2>/dev/null || true
 
-for helper in battery-discharge-to.sh battery-care-policy.sh; do
+for helper in battery-discharge-to.sh battery-care-policy.sh battery-care-toggle.sh; do
     path="${INSTALL_BIN_DIR%/}/$helper"
     [[ -f "$path" ]] && { rm -f "$path"; echo "Removed $path"; }
 done

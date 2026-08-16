@@ -95,8 +95,20 @@ hibernate, hybrid sleep, and suspend-then-hibernate; it starts a non-blocking
 reconcile after wake. A shutdown guard runs the same departure policy on clean
 reboot/halt/poweroff. Sudden power loss cannot run a hook.
 
-To pause policy persistently, disable the two timers and the departure guard;
-re-enable them and start a reconcile to resume:
+To enable, disable (set charge to max 0–100%), or check state, use the included helper script:
+
+```bash
+# Disable battery care policy and force charging to 100% max
+sudo battery-care-toggle.sh disable  # or 'off' / 'max'
+
+# Re-enable battery care policy and reconcile schedule
+sudo battery-care-toggle.sh enable   # or 'on' / 'auto'
+
+# Check policy status and battery state
+sudo battery-care-toggle.sh status
+```
+
+Or perform the manual systemd commands:
 
 ```bash
 sudo systemctl disable --now battery-care-night.timer battery-care-morning.timer battery-care-departure.service

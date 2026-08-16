@@ -35,12 +35,14 @@ RD="${RUNTIME_DIR%/}"
 SLEEP_DIR="${SYSTEM_SLEEP_DIR%/}"
 DISCHARGE="$BIN_DIR/battery-discharge-to.sh"
 POLICY="$BIN_DIR/battery-care-policy.sh"
+TOGGLE="$BIN_DIR/battery-care-toggle.sh"
 RUNTIME_CONFIG="$RD/battery-care.conf"
 SLEEP_HOOK="$SLEEP_DIR/battery-care"
 RUNTIME_SECONDS=$((NIGHT_DISCHARGE_MAX_RUNTIME_MINUTES * 60))
 
 install -D -m 0755 "$ROOT/bin/battery-discharge-to.sh" "$DISCHARGE"
 install -D -m 0755 "$ROOT/bin/battery-care-policy.sh" "$POLICY"
+install -D -m 0755 "$ROOT/bin/battery-care-toggle.sh" "$TOGGLE"
 mkdir -p "$RD" "$UD" "$SLEEP_DIR"
 
 # The policy sources this file; keep it root-owned and shell-escaped.

@@ -88,4 +88,30 @@ expect 'Warning: could not queue battery-care-low.service'
     [[ "$NIGHT_START_THRESHOLD" == "70" ]] || { echo "expected NIGHT_START_THRESHOLD=70, got '$NIGHT_START_THRESHOLD'"; exit 1; }
 )
 
+# Test battery-care-toggle.sh disable
+: > "$LOG"
+BATTERY_CARE_CONFIG="$TMP/config" POWER_SUPPLY_DIR="$TMP/power" \
+  SYSTEMCTL_BIN="$TMP/bin/systemctl" TLP_BIN="$TMP/bin/tlp" \
+  bash "$ROOT/bin/battery-care-toggle.sh" disable >>"$LOG" 2>&1
+expect 'systemctl disable --now battery-care-night.timer battery-care-morning.timer battery-care-departure.service'
+expect 'systemctl stop battery-care-low.service'
+expect 'tlp setcharge 0 100 BAT0'
+expect 'Battery care protection DISABLED.'
+
+# Test battery-care-toggle.sh enable
+: > "$LOG"
+BATTERY_CARE_CONFIG="$TMP/config" POWER_SUPPLY_DIR="$TMP/power" \
+  SYSTEMCTL_BIN="$TMP/bin/systemctl" TLP_BIN="$TMP/bin/tlp" \
+  DATE_BIN="$TMP/bin/date" DATE_HOUR="12" DATE_DOW="3" \
+  bash "$ROOT/bin/battery-care-toggle.sh" enable >>"$LOG" 2>&1
+expect 'systemctl enable --now battery-care-night.timer battery-care-morning.timer battery-care-departure.service'
+expect 'Battery care protection ENABLED.'
+
+# Test battery-care-toggle.sh status
+: > "$LOG"
+BATTERY_CARE_CONFIG="$TMP/config" POWER_SUPPLY_DIR="$TMP/power" \
+  SYSTEMCTL_BIN="$TMP/bin/systemctl" TLP_BIN="$TMP/bin/tlp" \
+  bash "$ROOT/bin/battery-care-toggle.sh" status >>"$LOG" 2>&1
+expect '=== Battery Care Timers ==='
+
 echo "policy tests passed"
